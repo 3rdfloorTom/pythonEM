@@ -33,7 +33,7 @@ def main(xml_dir, particle_fn):
 	n_groups = plot_shifts(shift_array)
 
 	exposure_groups, group_centers = cluster_groups(n_groups, shift_array)
-	exposure_group_ids, sorted_radii = sort_groups(shift_array, exposure_groups, group_centers)
+	exposure_group_ids, sorted_radii = sort_groups(exposure_groups, group_centers)
 
 	plot_groups(shift_array,exposure_group_ids, group_centers, sorted_radii)
 	
@@ -159,12 +159,12 @@ def cluster_groups(n_groups, shift_array):
 	exposure_groups = hac.labels_
 
 	group_centers = [[np.average(shift_array[exposure_groups==x][:,0]),
-					  np.average(shift_array[exposure_groups==x[:,1]])]
+					  np.average(shift_array[exposure_groups==x][:,1])]
 					  for x in set(sorted(exposure_groups))]
 
 	return exposure_groups, group_centers
 
-def sort_groups(shift_array, exposure_groups, group_centers):
+def sort_groups(exposure_groups, group_centers):
 	"""
 	Plot exposure groups and assign exposure group IDs
 	Input: np.array, np.array, list
@@ -227,11 +227,11 @@ def sort_groups(shift_array, exposure_groups, group_centers):
     	angle = (np.degrees(np.arctan2(grid_y, grid_x)) + 360) % 360
     	grid_dists.append((idx, grid_x, grid_y, dist, angle))
 
-		# sort by dist and then by angle
-		sorted_rays = [x[0] for x in sorted(grid_dists, key=lambda x:(x[3], x[4]))]
+	# sort by dist and then by angle
+	sorted_idxs = [x[0] for x in sorted(grid_dists, key=lambda x:(x[3], x[4]))]
 
-		# apply sorting back to original groups
-		exposure_group_ids = [sorted_rays.index(x) + 1 for x in group_centers]
+	# apply sorting back to original groups
+	exposure_group_ids = [sorted_idxs.index(x) + 1 for x in exposure_groups]
 
 	return exposure_group_ids,sorted_radii
 
