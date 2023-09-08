@@ -15,7 +15,6 @@ import time
 import argparse 
 
 from eulerangles import matrix2euler
-from concurrent.futures import ThreadPoolExecutor
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 def main(particle_fn, upper_bound, lower_bound):
