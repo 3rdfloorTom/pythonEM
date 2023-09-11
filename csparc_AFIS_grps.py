@@ -9,17 +9,17 @@ Modified By Tom Laughlin for cryoSPARC
 """
 
 import os 
-import shutil
 import fnmatch
 import numpy as np
 import matplotlib.pyplot as plt
 import cryosparc.tools as cs
-import click
+import time
+import argparse
 
 from xml.etree import ElementTree 
 from sklearn.cluster import AgglomerativeClustering
 
-def main(xml_dir, particle_fn):
+def main(xml_dir,particle_fn,n_groups):
 	"""
 	Modifies a input cryoSPARC particle.cs file to possess Exposure Groups based on EPU beam shifts
 	Interactively assigns groups based on user input after plotting shifts
@@ -27,38 +27,30 @@ def main(xml_dir, particle_fn):
 	NOTE: Overwrites the input file
 		  Does write a back-up of the input file
 	"""
-
+	# Plot beam-shifts from EPU metadata xmls
 	metadata_fns = get_xml_list(xml_dir)
 	shift_array = get_shift_array(metadata_fns)
-	n_groups = plot_shifts(shift_array)
+	shift_plot, n_groups = plot_shifts(shift_array, n_groups)
 
+	# Cluster beam-shift groups into exposure groups based on user-specified group number
 	exposure_groups, group_centers = cluster_groups(n_groups, shift_array)
 	exposure_group_ids, sorted_radii = sort_groups(exposure_groups, group_centers)
-
-	plot_groups(shift_array,exposure_group_ids, group_centers, sorted_radii)
+	grouped_plot = plot_groups(shift_array,exposure_group_ids, group_centers, sorted_radii)
 	
+	# Apply grouping to particle metadata
 	particle_data = cs.Dataset.load(particle_fn)
+	particle_data_grouped = apply_groups(particle_data,metadata_fns,exposure_group_ids)
 
-	particle_data_grouped = apply_groups(metadata_fns,exposure_group_ids,group_centers,sorted_radii)
+	print('Writing new files to disk.\n')
+	backup_fn,shift_plot_fn,grouped_plot_fn = write_files(particle_fn,shift_plot,grouped_plot,particle_data,particle_data_grouped)
 
-	# Back-up input file
-	particle_fn_bak = particle_fn + ".bak"
+	# Notify user of new files
+	print('New files written to disk:')
+	print(f'Original particle metadata has been moved to {backup_fn}.')
+	print(f'Grouped particle metadata has been written to {particle_fn} with {n_groups} exposure groups.')
+	print(f'Plots for the beam-shifts and groups have been written out as {shift_plot_fn} and {grouped_plot_fn}, respectively\n')
 
-	click.echo(
-		f"Writing a back-up of the input cryoSPARC particle file as: {particle_fn_bak} \n")
-
-	shutil.copyfile(particle_fn, particle_fn_bak)
-
-	# Write out new file to input file name
-	particle_data_grouped.save(particle_fn)
-	
-	click.echo(
-		f"Modified cryoSPARC particle file was written out as: {particle_fn} \n")
-	
-
-	return
-
-
+	return None
 
 def get_xml_list(xml_dir):
 	"""
@@ -68,18 +60,15 @@ def get_xml_list(xml_dir):
 	Return: list
 	"""
 	metadata_fns = []
-
-    for dirpath, dirnames, filenames in os.walk(xml_dir, followlinks=True):
-        for filename in filenames:
-            if (fnmatch(filename, 'FoilHole_*_Data_*.xml'))
-         		metadata_fns.append(os.path.join(dirpath, filename))
+	for dirpath, dirnames, filenames in os.walk(xml_dir, followlinks=True):
+		for filename in filenames:
+			if (fnmatch(filename, 'FoilHole_*_Data_*.xml'))
+			metadata_fns.append(os.path.join(dirpath, filename))
 
     # Error check
-    if len(metadata_fns) == 0:
-    	raise ValueError('No EPU XML metadata files found')
-
-    return metadata_fns
-
+	if len(metadata_fns) == 0:
+		raise ValueError('No EPU XML metadata files found')
+	return metadata_fns
 
 def get_shift_array(metadata_fns):
 	"""
@@ -90,60 +79,57 @@ def get_shift_array(metadata_fns):
 	"""
 	# TFS namespaces
 	name_space = {'fei' : 'http://schemas.datacontract.org/2004/07/Fei.SharedObjects'}
-
 	beam_shifts = []
 
 	for metadata_fn in metadata_fns:
-    	metadata = ElementTree.parse(metadata_fn)
-    	beam_shift = metadata.findall('fei:microscopeData/fei:optics/fei:BeamShift', name_space)
+		metadata = ElementTree.parse(metadata_fn)
+		beam_shift = metadata.findall('fei:microscopeData/fei:optics/fei:BeamShift', name_space)
 
     	# Error check
-    	if len(beam_shift) == 0:
-            raise ValueError('No BeamShift found in {}'.format(metadata_fn))
-        elif len(beam_shift[0]) != 2:
-            raise ValueError('Improper BeamShift found in {}'.format(metadata_fn))
+		if len(beam_shift) == 0:
+			raise ValueError('No BeamShift found in {}'.format(metadata_fn))
+		elif len(beam_shift[0]) != 2:
+			raise ValueError('Improper BeamShift found in {}'.format(metadata_fn))
 
 		beam_shifts.append([float(x.text) for x in beam_shift[0]])
 
 	return np.array(beam_shifts)
 
 
-def plot_shifts(shift_array):
+def plot_shifts(shift_array, n_groups):
 	"""
 	Plots beam shifts for user to indicate number of groups
 	
-	Input: np.array
-	Return: int
+	Input: np.array, int
+	Return: figure, int
 	"""
 
-	n_groups = 1
-
 	if n_groups == 1:
-    	figure = plt.figure()
-    	axes = figure.add_subplot(111)
-    	axes.set_title('EPU AFIS Beam Shift Values')
-    	axes.set_xlabel('Beam Shift X (a.u.)')
-    	axes.set_ylabel('Beam Shift Y (a.u.)')
-    	axes.scatter(shift_array[:, 0], shift_array[:, 1])
-    	plt.show(block = False)
+		figure = plt.figure()
+		axes = figure.add_subplot(111)
+		axes.set_title('EPU AFIS Beam Shift Values')
+		axes.set_xlabel('Beam Shift X (a.u.)')
+		axes.set_ylabel('Beam Shift Y (a.u.)')
+		axes.scatter(shift_array[:, 0], shift_array[:, 1])
+		plt.show(block = False)
 
-        while n_groups <= 1:
-            n_user = input('How many Exposure Groups (or Ctrl-C to abort): ')
-
-            try:
-                n_groups = int(n_user)
-            except ValueError:
-                print('Please enter a positive integer greater than 1!')
-            else:
-                if n_groups <=1:
-                    print('Please enter a positive integer greater than 1!')
-
-        plt.close('all')
-
-    if len(beam_shifts) < n_groups:
-        raise ValueError('Number of groups greater than number of points')
-
-    return n_groups
+		while n_groups <= 1:
+			n_user = input('How many Exposure Groups (or Ctrl-C to abort): ')
+			
+			try:
+				n_groups = int(n_user)
+			except ValueError:
+				print('Please enter a positive integer greater than 1!')
+			else:
+				if n_groups <=1:
+					print('Please enter a positive integer greater than 1!')
+					
+		plt.close('all')
+		
+	if len(shift_array) < n_groups:
+		raise ValueError('Number of groups greater than number of points')
+	
+	return figure, n_groups
 
 
 def cluster_groups(n_groups, shift_array):
@@ -191,41 +177,40 @@ def sort_groups(exposure_groups, group_centers):
 
 	# base grid axes on four smallest points after the origin
 	for idx in range(1,5):
-    	point = group_centers[sorted_radii[idx][0]]
-    	x_coord = point[0] - origin[0]
-    	y_coord = point[1] - origin[1]
+		point = group_centers[sorted_radii[idx][0]]
+		x_coord = point[0] - origin[0]
+		y_coord = point[1] - origin[1]
     
    	 	# set the x-axis
-    	if x_coord > 0 and x_coord > abs(y_coord):
-        	x_vec = (x_coord, y_coord)
-        	x_angle = np.arctan2(y_coord,x_coord)
-       		x_length = np.sqrt(x_vec[0]**2 + x_vec[1]**2)
-        	x_unit = (x_vec[0] / x_length, x_vec[1] / x_length)
-        
-    	# set the y-axis
-    	if y_coord > 0 and y_coord > abs(x_coord):
-        	y_vec = (x_coord, y_coord)
-        	y_angle = np.arctan2(y_coord, x_coord)
-        	y_length = np.sqrt(y_vec[0]**2 + y_vec[1]**2)
-        	y_unit = (y_vec[0] / y_length, y_vec[1] / y_length)
+		if x_coord > 0 and x_coord > abs(y_coord):
+			x_vec = (x_coord, y_coord)
+			x_angle = np.arctan2(y_coord,x_coord)
+			x_length = np.sqrt(x_vec[0]**2 + x_vec[1]**2)
+			x_unit = (x_vec[0] / x_length, x_vec[1] / x_length)
 
+    	# set the y-axis
+		if y_coord > 0 and y_coord > abs(x_coord):
+			y_vec = (x_coord, y_coord)
+			y_angle = np.arctan2(y_coord, x_coord)
+			y_length = np.sqrt(y_vec[0]**2 + y_vec[1]**2)
+			y_unit = (y_vec[0] / y_length, y_vec[1] / y_length)
 
     # initialize list to store distances on polar grid
 	grid_dists = []
 
 	for idx, center in enumerate(group_centers):
     	# normalize the point w.r.t. the origin
-    	point = center[0] - origin[0], center[1] - origin[1]
-    
-    	# project points along unit vectors
-    	grid_x = np.round((point[0] * x_unit[0] + point[1] * x_unit[1])/x_length)
-    	grid_y = np.round((point[0] * y_unit[0] + point[1] * y_unit[1])/y_length)
-    
-    	dist = max(abs(grid_x),abs(grid_y))
-    
-    	# compute angle and sort CCW
-    	angle = (np.degrees(np.arctan2(grid_y, grid_x)) + 360) % 360
-    	grid_dists.append((idx, grid_x, grid_y, dist, angle))
+		point = center[0] - origin[0], center[1] - origin[1]
+
+		# project points along unit vectors
+		grid_x = np.round((point[0] * x_unit[0] + point[1] * x_unit[1])/x_length)
+		grid_y = np.round((point[0] * y_unit[0] + point[1] * y_unit[1])/y_length)
+
+		dist = max(abs(grid_x),abs(grid_y))
+
+		# compute angle and sort CCW
+		angle = (np.degrees(np.arctan2(grid_y, grid_x)) + 360) % 360
+		grid_dists.append((idx, grid_x, grid_y, dist, angle))
 
 	# sort by dist and then by angle
 	sorted_idxs = [x[0] for x in sorted(grid_dists, key=lambda x:(x[3], x[4]))]
@@ -239,23 +224,22 @@ def plot_groups(shift_array,exposure_group_ids, group_centers, sorted_radii):
 	"""
 	Plot exposure groups
 
-	Input: np.array, list,list,list
-	Output: None
+	Input: np.array,list,list,list
+	Output: figure
 	"""
 	figure = plt.figure()
 	axes = figure.add_subplot(111)
 	plt.scatter(shift_array[:,0], shift_array[:,1], c=exposure_group_ids, cmap='tab20b')
 
 	for exposure_group in range(len(exposure_group_ids)):
-    	idx = sorted_radii[exposure_group][0]
-    	axes.annotate('{0:d}'.format(exposure_group + 1), xy=group_centers[idx], textcoords='offset pixels', xytext=(5, 5))
+		idx = sorted_radii[exposure_group][0]
+		axes.annotate('{0:d}'.format(exposure_group + 1), xy=group_centers[idx], textcoords='offset pixels', xytext=(5, 5))
 
-    plt.show(block = False)
-    _ = input('If happy with grouping press any key (Ctrl-C to abort)')
-    plt.close('all')
+	plt.show(block = False)
+	_ = input('If happy with grouping press any key (Ctrl-C to abort)')
+	plt.close('all')
     
-    return None
-
+	return figure
 
 def apply_groups(particle_data, metadata_fns, exposure_group_ids):
 	"""
@@ -273,40 +257,65 @@ def apply_groups(particle_data, metadata_fns, exposure_group_ids):
 	particle_mic_names = []
 
 	for particle_name in particle_names:
-    	base = os.path.basename(particle_name)
-    	root,ext = os.path.splitext(base)
-    	mic_base = '_'.join(root.split('_')[0:field_no])
-    	particle_mic_names.append(mic_base)
+		base = os.path.basename(particle_name)
+		root,ext = os.path.splitext(base)
+		mic_base = '_'.join(root.split('_')[0:field_no])
+		particle_mic_names.append(mic_base)
 
-    exposure_dic = {}
+	exposure_dic = {}
 
 	for metadata_fn, exposure_group in mics_with_groups:
-    	base = os.path.basename(metadata_fn)
-    	mic_base,ext = os.path.splitext(base)
-    	exposure_dic[mic_base] = expsoure_group
-
+		base = os.path.basename(metadata_fn)
+		mic_base,ext = os.path.splitext(base)
+		exposure_dic[mic_base] = exposure_group
 
 	exposure_groups_assigned = []
 
 	for particle_mic_name in particle_mic_names:
-    	expoure_groups_assigned.append(exposure_dic[particle_mic_name])
+		exposure_groups_assigned.append(exposure_dic[particle_mic_name])
 
-
-    particle_data['ctf/exp_group_id'] = exposure_groups_assigned
+	particle_data['ctf/exp_group_id'] = exposure_groups_assigned
 	
 	return particle_data
 
-# Argument parsing with click
-@click.command()
-@click.option('--input_xml_dir', '-i',
-              prompt='Input EPU XML directory path',
-              type=click.Path(),
-              required=True)
-@click.option('--cryosparc_particle_file', '-cs',
-              prompt='cryoSPARC particle file path',
-              type=click.Path(),
-              required=True)
+def write_files(particle_fn,shift_plot,grouped_plot,particle_data,particle_data_grouped):
+	"""
+	Write files (particle metadata, plots, etc.) to disk and return the file names used to do so.
 
+	Input: str,figure,figure,dict(like),dict(like)
+	Output: str,str,str
+	"""
+	basename = particle_fn.split('.')[0]
+	time_stamp = time.strftime('%Y%m%d-%H%M%S')    
+	backup_fn = basename + "_" + time_stamp + ".cs"
+	particle_data.save(backup_fn)
+	particle_data_grouped.save(particle_fn)
+
+	shift_plot_fn = basename + time_stamp + "_beamShift_plot.png"
+	shift_plot.savefig(shift_plot_fn)
+	grouped_plot_fn = basename + time_stamp + "_groupedShift_plot.png"
+	grouped_plot.savefig(grouped_plot_fn)
+
+	return backup_fn, shift_plot_fn, grouped_plot_fn
+
+# Argument parsing
 if __name__ == '__main__':
-	main(input_xml_dir,cryosparc_particle_file)
+    parser = argparse.ArgumentParser(
+        description = "Apply EPU beam-shift groups as ExposureIDs for a cryoSPARC .cs particle metadata file")
+    
+    parser.add_argument('--input', '-i', type=str, required = True,
+                        help = ('Filename of the cryoSPARC particle metadata file to be modified.'
+                                '[REQUIRED]'))
+    
+    parser.add_argument('--epu_directory', '-e', type=str, required = True,
+                        help = ('PATH to EPU collection metadata directory.'
+								'[REQUIRED]'))
+    
+    parser.add_argument('--n_groups', '-n', type=int, required = False, default=1,
+                        help = ('Number of groups to use for grouping of beam-shifts.'))
+    
+    args = parser.parse_args()
 
+    main(particle_fn = args.input,
+         xml_dir = args.epu_directory,
+         n_groups = args.n_groups)
