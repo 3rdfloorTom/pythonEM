@@ -62,8 +62,8 @@ def get_xml_list(xml_dir):
 	metadata_fns = []
 	for dirpath, dirnames, filenames in os.walk(xml_dir, followlinks=True):
 		for filename in filenames:
-			if (fnmatch(filename, 'FoilHole_*_Data_*.xml'))
-			metadata_fns.append(os.path.join(dirpath, filename))
+			if (fnmatch(filename, 'FoilHole_*_Data_*.xml')):
+				metadata_fns.append(os.path.join(dirpath, filename))
 
     # Error check
 	if len(metadata_fns) == 0:
