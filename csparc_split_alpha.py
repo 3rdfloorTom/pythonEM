@@ -22,7 +22,7 @@ def main(particle_fn, cutoff, bin_width):
 
     # load particle metadata into dataset format
     particle_data = cs.Dataset.load(particle_fn)
-    particle_alpha = particle_data['alignment3D/alpha']
+    particle_alpha = particle_data['alignments3D/alpha']
 
     # get cutoff for alpha from user
     if cutoff == None:
@@ -40,10 +40,10 @@ def main(particle_fn, cutoff, bin_width):
 
     # separate the metadata by user-specified cutoff
     print(f'Splitting data at {cutoff} ...\n')
-    data_above, data_below = split_data(particle_data,cutoff,'alignment3D/alpha')
+    data_above, data_below = split_data(particle_data,cutoff,'alignments3D/alpha')
 
     # check with user for acceptance of split
-    split_plot = plot_histograms([data_above['alignment3D/alpha'],data_below['alignment3D/alpha']],bin_width,'Split Per-particle scale distributions') 
+    split_plot = plot_histograms([data_above['alignments3D/alpha'],data_below['alignments3D/alpha']],bin_width,'Split Per-particle scale distributions') 
     
     _ = input('If happy with split, then press any key (Ctrl-C to abort)\n')
     plt.close('all')
@@ -83,7 +83,7 @@ def plot_histograms(particle_alpha_lists, bin_width, title):
     plt.ticklabel_format(axis='y', style='sci', scilimits=(0,0))
     plt.xlabel('refined scale factor', figure=fig)
     plt.xlim([0,2])
-    plt.show()
+    plt.show(block=False)
     
     return fig
 
@@ -99,8 +99,8 @@ def write_files(particle_fn,data_above,data_below,cutoff,original_plot,split_plo
     """
     # format strings for file names
     basename = particle_fn.split('.')[0]
-    data_above_fn = basename + "_above_" + cutoff + ".cs"
-    data_below_fn = basename + "_below_" + cutoff + ".cs"
+    data_above_fn = basename + "_above_" + str(cutoff) + ".cs"
+    data_below_fn = basename + "_below_" + str(cutoff) + ".cs"
     
     # write split files with formatted names
     data_above.save(data_above_fn)
