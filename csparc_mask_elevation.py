@@ -181,13 +181,13 @@ def write_files(particle_fn,particle_data, masked_particle_data,original_plot,ma
     # write out histograms for reference
     original_plot_fn = basename + "_" + time_stamp + "_original.png"
     original_plot.figsize = (11.80,8.85)
-    original_plot.dpi = 300
-    original_plot.savefig(original_plot_fn)  
+    #original_plot.dpi = 300
+    original_plot.savefig(original_plot_fn, dpi=300)  
 
     masked_plot_fn = basename + "_" + time_stamp + "_masked.png"
     masked_plot.figsize = (11.80,8.85)
-    masked_plot.dpi = 300
-    masked_plot.savefig(masked_plot_fn)
+    #masked_plot.dpi = 300
+    masked_plot.savefig(masked_plot_fn, dpi=300)
 
     return backup_fn, original_plot_fn, masked_plot_fn
 
